@@ -77,9 +77,11 @@ data = selected_data()
 
 data['Local time'] = pd.to_datetime(data['Local time'], format='%d.%m.%Y %H:%M:%S.%f GMT%z')
 
-
 def SMA(array, period):
     return array.rolling(period).mean()
+
+st.title("Backtesting Framework")
+
 
 # sidebar
 with st.sidebar:
@@ -183,6 +185,22 @@ for i in range(1, len(data)):
         data['Balance'].iloc[i] = data['Balance'].iloc[i - 1]
 
 
+# --- Calculate Percentage Change ---
+data['Percentage_Change'] = ((data['Balance'] - initial_balance) / initial_balance) * 100
+
+# --- Calculate Daily P/L ---
+data['Daily_Pnl'] = data['Balance'].diff()
+data['Cumulative_Pnl'] = data['Daily_Pnl'].cumsum()
+
+# --- Create Data for Chart 1 Shading ---
+data['Zero_Line'] = 0.0 
+data['Positive_Area'] = np.where(data['Cumulative_Pnl'] > 0, data['Cumulative_Pnl'], 0)
+data['Negative_Area'] = np.where(data['Cumulative_Pnl'] < 0, data['Cumulative_Pnl'], 0)
+
+# --- Calculate Win Rate ---
+data['Trade_Result'] = np.where(data['Daily_Pnl'] > 0, 1, 0)  # 1 for win, 0 for loss or no trade
+win_rate = data['Trade_Result'].sum() / len(data) * 100
+
 # last 24h % change
 latest_date = data.index[-1]
 previous_date = data.index[-2]
@@ -225,11 +243,10 @@ with metric3:
     )
 
 with metric4:
-    # Winrate (Calculate based on number of winning trades)
-    num_trades = len(data[data['Position'] != 0]) 
-    num_winning_trades = len(data[(data['Position'] == 1) & (data['Close'].shift(-1) > data['Close'])]) + \
-                        len(data[(data['Position'] == -1) & (data['Close'].shift(-1) < data['Close'])])
-    winrate = (num_winning_trades / num_trades) * 100
+    st.metric(
+        label=f"Win Rate",
+        value=f"{win_rate:.2f}%", 
+    )
 
 # Create a candlestick trace
 candle = go.Candlestick(
@@ -270,18 +287,6 @@ fig.update_layout(width=1200, height=600)
 
 st.plotly_chart(fig)
 
-# --- Calculate Percentage Change ---
-data['Percentage_Change'] = ((data['Balance'] - initial_balance) / initial_balance) * 100
-
-# --- Calculate Daily P/L ---
-data['Daily_Pnl'] = data['Balance'].diff()
-data['Cumulative_Pnl'] = data['Daily_Pnl'].cumsum()
-
-# --- Create Data for Chart 1 Shading ---
-data['Zero_Line'] = 0.0 
-data['Positive_Area'] = np.where(data['Cumulative_Pnl'] > 0, data['Cumulative_Pnl'], 0)
-data['Negative_Area'] = np.where(data['Cumulative_Pnl'] < 0, data['Cumulative_Pnl'], 0)
-
 # --- Display Charts ---
 
 chart1, chart2 = st.columns(2)
@@ -297,7 +302,7 @@ with chart1:
         x=data.index,
         y=data['Positive_Area'],
         fill='tozeroy',
-        fillcolor='rgba(0, 255, 0, 0.3)',  # Green with transparency
+        fillcolor='rgba(0, 255, 0, 0.1)',  # Green with transparency
         line=dict(color='rgba(0, 0, 0, 0)'),  # Transparent line
         name='profit'
     ))
@@ -307,7 +312,7 @@ with chart1:
         x=data.index,
         y=data['Negative_Area'],
         fill='tozeroy',
-        fillcolor='rgba(255, 0, 0, 0.3)',  # Red with transparency
+        fillcolor='rgba(255, 0, 0, 0.1)',  # Red with transparency
         line=dict(color='rgba(0, 0, 0, 0)'),  # Transparent line
         name='loss'
     ))
@@ -320,7 +325,14 @@ with chart1:
         name='Cumulative P/L'
     ))
 
-    fig1.update_layout(title='Cumulative Profit/Loss', yaxis_title='Cumulative P/L')
+    # Calculate y-axis range based on initial balance and percentage
+    y_range_min = -0.125 * initial_balance
+    y_range_max = 0.125 * initial_balance
+    fig1.update_layout(
+        title='Cumulative Profit/Loss', 
+        yaxis_title='Cumulative P/L', 
+        yaxis_range=[y_range_min, y_range_max]  # Set y-axis range dynamically
+    )
     st.plotly_chart(fig1)
 
 with chart2:
