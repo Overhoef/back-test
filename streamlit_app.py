@@ -3,6 +3,7 @@ import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 
 # Config
 st.set_page_config(layout="wide")  # Set wide mode as default
@@ -85,22 +86,6 @@ st.title("Backtesting Framework")
 
 # sidebar
 with st.sidebar:
-    # fast = st.slider('fast sma', min_value=0,max_value=100, value=9)
-    # long = st.slider('long sma', min_value=0,max_value=100, value=30)
-
-    # data["SMA fast"] = SMA(data["Close"], fast)
-    # data["SMA long"] = SMA(data["Close"], long)
-
-    # initial_balance = st.sidebar.number_input("Initial Balance", value=10000.0, min_value=0.0)
-    # trade_size_type = st.sidebar.radio("Trade Size Type", ("Percent", "Value"))
-
-    # if trade_size_type == "Percent":
-    #     trade_size_percent = st.sidebar.slider("Trade Size (%)", 1, 100, 10, 1)
-    #     trade_size = lambda balance: balance * trade_size_percent / 100
-    # else:
-    #     trade_size_value = st.sidebar.number_input("Trade Size (Value)", value=100.0, min_value=0.0)
-    #     trade_size = lambda balance: trade_size_value
-
     # --- Strategy Selection ---
     strategy_choice = st.sidebar.selectbox("Select Strategy", 
                                       ["SMA Crossover", "Bollinger Bands", "MACD", "Custom"], index=1)
@@ -128,13 +113,12 @@ with st.sidebar:
         data['Position'] = data['Signal'].diff()
 
     elif strategy_choice == "MACD":
-        fast_period = st.sidebar.slider("Fast Period", 12, 26, 12, 1)
-        slow_period = st.sidebar.slider("Slow Period", 26, 52, 26, 1)
-        signal_period = st.sidebar.slider("Signal Period", 9, 15, 9, 1)
-        data['EMA_fast'] = data['Close'].ewm(span=fast_period, adjust=False).mean()
-        data['EMA_slow'] = data['Close'].ewm(span=slow_period, adjust=False).mean()
-        data['MACD'] = data['EMA_fast'] - data['EMA_slow']
-        data['MACD_Signal'] = data['MACD'].ewm(span=signal_period, adjust=False).mean()
+        period = st.sidebar.slider("Period", 20, 60, 20, 1)
+        std_dev = st.sidebar.slider("Standard Deviations", 1, 3, 2, 1)
+        data['SMA'] = data['Close'].rolling(window=period).mean()
+        data['STD'] = data['Close'].rolling(window=period).std()
+        data['BB_upper'] = data['SMA'] + (std_dev * data['STD'])
+        data['BB_lower'] = data['SMA'] - (std_dev * data['STD'])
         data['Signal'] = 0.0
         data['Signal'] = np.where(data['MACD'] > data['MACD_Signal'], 1.0, 0.0)  # Buy when MACD crosses above Signal line
         data['Signal'] = np.where(data['MACD'] < data['MACD_Signal'], -1.0, data['Signal'])  # Sell when MACD crosses below Signal line
@@ -159,30 +143,46 @@ else:
     lot_size = st.sidebar.number_input("Lot Size", value=0.1, min_value=0.01, step=0.01)
     trade_size = lambda balance: lot_size * 100000  # Assuming 1 lot = 100,000 units
 
-# --- Backtesting Logic (Generic Framework) ---
+# --- Backtesting Logic ---
 
 data['Balance'] = initial_balance
 data['Position_Size'] = 0.0
+data['Position'] = 0.0  # Initialize position
 
 for i in range(1, len(data)):
-    if data['Position'].iloc[i] == 1:  # Buy Signal
-        trade_amount = trade_size(data['Balance'].iloc[i - 1])
-        try:
-            data['Position_Size'].iloc[i] = trade_amount / data['Close'].iloc[i]  # Calculate position size in units
+    if data['Signal'].iloc[i] == 1:  # Buy Signal
+        if data['Position'].iloc[i - 1] != 1:  # Enter long position if not already long
+            trade_amount = trade_size(data['Balance'].iloc[i - 1])
+            try:
+                data['Position_Size'].iloc[i] = trade_amount / data['Close'].iloc[i]  # Calculate position size in units
+                data['Balance'].iloc[i] = data['Balance'].iloc[i - 1] 
+            except ZeroDivisionError:
+                st.warning("Encountered potential division by zero. Skipping this trade.")
+                data['Position_Size'].iloc[i] = 0
+                data['Balance'].iloc[i] = data['Balance'].iloc[i - 1]
+        else:  # Maintain long position
+            data['Position_Size'].iloc[i] = data['Position_Size'].iloc[i - 1]
             data['Balance'].iloc[i] = data['Balance'].iloc[i - 1] 
-        except ZeroDivisionError:
-            st.warning("Encountered potential division by zero. Skipping this trade.")
-            data['Position_Size'].iloc[i] = 0
-            data['Balance'].iloc[i] = data['Balance'].iloc[i - 1]
-    elif data['Position'].iloc[i] == -1:  # Sell Signal
-        if data['Position_Size'].iloc[i - 1] > 0: 
+    elif data['Signal'].iloc[i] == -1:  # Sell Signal
+        if data['Position'].iloc[i - 1] != -1:  # Enter short position if not already short
+            trade_amount = trade_size(data['Balance'].iloc[i - 1])
+            try:
+                data['Position_Size'].iloc[i] = -trade_amount / data['Close'].iloc[i]  # Calculate position size for short
+                data['Balance'].iloc[i] = data['Balance'].iloc[i - 1] 
+            except ZeroDivisionError:
+                st.warning("Encountered potential division by zero. Skipping this trade.")
+                data['Position_Size'].iloc[i] = 0
+                data['Balance'].iloc[i] = data['Balance'].iloc[i - 1]
+        else:  # Maintain short position
+            data['Position_Size'].iloc[i] = data['Position_Size'].iloc[i - 1]
+            data['Balance'].iloc[i] = data['Balance'].iloc[i - 1] 
+    else:  # No signal
+        if data['Position_Size'].iloc[i - 1] != 0:  # Exit position if any
             profit_loss = data['Position_Size'].iloc[i - 1] * (data['Close'].iloc[i] - data['Close'].iloc[i - 1])
             data['Balance'].iloc[i] = data['Balance'].iloc[i - 1] + profit_loss
             data['Position_Size'].iloc[i] = 0
         else:
             data['Balance'].iloc[i] = data['Balance'].iloc[i - 1]
-    else:
-        data['Balance'].iloc[i] = data['Balance'].iloc[i - 1]
 
 
 # --- Calculate Percentage Change ---
@@ -201,6 +201,14 @@ data['Negative_Area'] = np.where(data['Cumulative_Pnl'] < 0, data['Cumulative_Pn
 data['Trade_Result'] = np.where(data['Daily_Pnl'] > 0, 1, 0)  # 1 for win, 0 for loss or no trade
 win_rate = data['Trade_Result'].sum() / len(data) * 100
 
+
+# --- Calculate Number of Trades ---
+num_trades = data['Position'].diff().abs().sum()
+# --- Calculate Number of Long Trades ---
+num_long_trades = (data['Position'] == 1).sum()
+# --- Calculate Number of Short Trades ---
+num_short_trades = (data['Position'] == -1).sum() 
+
 # last 24h % change
 latest_date = data.index[-1]
 previous_date = data.index[-2]
@@ -209,7 +217,7 @@ previous_close = data.loc[previous_date, "Close"]
 price_change = latest_close - previous_close
 percent_change = (price_change / previous_close) * 100
 
-metric1, metric2, metric3, metric4 = st.columns(4)
+metric1, metric2, metric3, metric4, metric5, metric6 = st.columns(6)
 
 with metric1:
 # Price change 24h
@@ -248,43 +256,71 @@ with metric4:
         value=f"{win_rate:.2f}%", 
     )
 
-# Create a candlestick trace
+with metric5:
+    st.metric(
+        label=f"Long Trades",
+        value=f"{int(num_long_trades)}", 
+    )
+
+with metric6:
+    st.metric(
+        label=f"Short Trades",
+        value=f"{int(num_short_trades)}", 
+    )
+
+# Create subplots and adjust layout
+# Create subplots and adjust layout
+fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                   vertical_spacing=0.05, 
+                   subplot_titles=("", "Volume"), 
+                   row_width=[0.3, 0.7]) 
+
+# Add Candlestick trace
 candle = go.Candlestick(
-    x=data.index,  # X-axis data (timestamps)
+    x=data.index, 
     open=data["Open"],
     high=data["High"],
     low=data["Low"],
     close=data["Close"],
     name="Candlestick"
 )
+fig.add_trace(candle, row=1, col=1)
 
-# # Create SMA traces
-# trace_sma_fast = go.Scatter(x=data.index, y=data['SMA fast'], line_color='gray', opacity=0.7, name="Fast SMA")
-# trace_sma_long = go.Scatter(x=data.index, y=data['SMA long'], line_color='blue', opacity=0.7, name="Slow SMA")
+# Add SMA 9 line
+data['SMA_9'] = data['Close'].rolling(window=9).mean()
+fig.add_trace(go.Scatter(x=data.index, y=data['SMA_9'], line_color='orange', opacity=0.9, name="SMA 9"), row=1, col=1)
 
-# Create scatter points for Buy Signals
-buy = go.Scatter(
-    x=data[data['Position'] == 1].index, 
-    y=data['Close'][data['Position'] == 1], 
+# Add SMA 9 line
+data['SMA_30'] = data['Close'].rolling(window=30).mean()
+fig.add_trace(go.Scatter(x=data.index, y=data['SMA_30'], line_color='blue', opacity=0.9, name="SMA 30"), row=1, col=1)
+
+# Add Buy Signals
+fig.add_trace(go.Scatter(
+    x=data[data['Signal'] == 1].index, 
+    y=data['Close'][data['Signal'] == 1], 
     mode='markers', 
     name='Buy Signal', 
-    marker=dict(color='green', size=10, symbol='triangle-up')
-)
+    marker=dict(color='green', size=6, symbol='triangle-up')
+), row=1, col=1)
 
-# Create scatter points for Sell Signals
-sell = go.Scatter(
-    x=data[data['Position'] == -1].index, 
-    y=data['Close'][data['Position'] == -1], 
+# Add Sell Signals
+fig.add_trace(go.Scatter(
+    x=data[data['Signal'] == -1].index, 
+    y=data['Close'][data['Signal'] == -1], 
     mode='markers', 
     name='Sell Signal', 
-    marker=dict(color='red', size=10, symbol='triangle-down')
-)
+    marker=dict(color='red', size=6, symbol='triangle-down')
+), row=1, col=1)
 
-# Create the figure
-fig = go.Figure(data=[candle, buy, sell])
+# Add Volume Bar trace
+fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name="Volume", opacity=0.7), row=2, col=1)
 
-fig.update_layout(width=1200, height=600)
+# Hide range slider for OHLC chart
+fig.update(layout_xaxis_rangeslider_visible=False)
 
+fig.update_layout(width=1250, height=600)
+
+st.subheader(selected_function)
 st.plotly_chart(fig)
 
 # --- Display Charts ---
@@ -295,7 +331,7 @@ with chart1:
     fig1 = go.Figure()
 
     # Add the zero line
-    fig1.add_trace(go.Scatter(x=data.index, y=data['Zero_Line'], line=dict(color='black', dash='dash')))
+    fig1.add_trace(go.Scatter(x=data.index, y=data['Zero_Line'], line=dict(color='#101010', dash='dot'), name='0 line'))
 
     # Add the positive area fill
     fig1.add_trace(go.Scatter(
@@ -322,7 +358,7 @@ with chart1:
         x=data.index,
         y=data['Cumulative_Pnl'],
         line=dict(color='gray'),
-        name='Cumulative P/L'
+        name='P/L'
     ))
 
     # Calculate y-axis range based on initial balance and percentage
@@ -331,7 +367,8 @@ with chart1:
     fig1.update_layout(
         title='Cumulative Profit/Loss', 
         yaxis_title='Cumulative P/L', 
-        yaxis_range=[y_range_min, y_range_max]  # Set y-axis range dynamically
+        yaxis_range=[y_range_min, y_range_max],  # Set y-axis range dynamically
+        legend=dict(x=0, y=1, xanchor='left', yanchor='top')
     )
     st.plotly_chart(fig1)
 
@@ -343,5 +380,5 @@ with chart2:
         line=dict(color='green'),
         name='Percentage Change'
     ))
-    fig2.update_layout(title='Percentage Change', yaxis_title='Percentage Change (%)')
+    fig2.update_layout(title='Percentage Change', yaxis_title='Percentage Change (%)', legend=dict(x=0, y=1, xanchor='left', yanchor='top'))
     st.plotly_chart(fig2)
