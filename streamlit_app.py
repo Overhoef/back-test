@@ -362,8 +362,8 @@ with chart1:
     ))
 
     # Calculate y-axis range based on initial balance and percentage
-    y_range_min = -0.125 * initial_balance
-    y_range_max = 0.125 * initial_balance
+    y_range_min = -1 * initial_balance
+    y_range_max = 1 * initial_balance
     fig1.update_layout(
         title='Cumulative Profit/Loss', 
         yaxis_title='Cumulative P/L', 
