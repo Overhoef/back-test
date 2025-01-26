@@ -224,13 +224,13 @@ with metric1:
     if price_change > 0:
         st.metric(
             label=f"24h verandering in %",
-            value=f"${latest_close:.2f}",
+            value=f"{latest_close:.2f}",
             delta=f"{percent_change:.2f}% ↑",
         )
     else:
         st.metric(
             label=f"24h verandering in %",
-            value=f"${latest_close:.2f}",
+            value=f"{latest_close:.2f}",
             delta=f"{percent_change:.2f}% ↓",
         )
 
