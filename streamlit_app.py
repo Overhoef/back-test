@@ -103,7 +103,7 @@ with st.sidebar:
 
     # --- Strategy Selection ---
     strategy_choice = st.sidebar.selectbox("Select Strategy", 
-                                      ["SMA Crossover", "Bollinger Bands", "MACD", "Custom"])
+                                      ["SMA Crossover", "Bollinger Bands", "MACD", "Custom"], index=1)
 
     # --- Strategy Parameters ---
     if strategy_choice == "SMA Crossover":
