@@ -238,8 +238,8 @@ with metric2:
     # Backtest performance (e.g., Final Balance)
     st.metric(
         label=f"Backtest Performance",
-        value=f"${data['Balance'].iloc[-1]:.2f}", 
-        delta=f"${data['Balance'].iloc[-1] - initial_balance:.2f}" 
+        value=f"€{data['Balance'].iloc[-1]:.2f}", 
+        delta=f"€{data['Balance'].iloc[-1] - initial_balance:.2f}" 
     )
 
 with metric3:
